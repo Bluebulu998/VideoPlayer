@@ -13,6 +13,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.PlayerManager;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 
 import java.util.HashMap;
 import java.util.List;
@@ -59,6 +60,7 @@ public class ServerPacketHandler {
                 DataHolder.lock();
                 DataHolder.areas.computeIfAbsent(area.dim, k -> new HashMap<>()).put(area.name, area);
                 DataHolder.unlock();
+                player.sendMessage(Text.literal("已成功在世界 " + player.getWorld().getRegistryKey().getValue() + " 创建名为 " + area.name + " 的观影区!").formatted(Formatting.GREEN));
             }
             case REMOVE_AREA -> {
                 // TODO check permission
@@ -72,6 +74,7 @@ public class ServerPacketHandler {
                     area.forEachPlayer(p -> sendTo(pm.getPlayer(p), data));
                 }
                 DataHolder.unlock();
+                player.sendMessage(Text.literal("已成功在世界 " + player.getWorld().getRegistryKey().getValue() + " 移除名为 " + area.name + " 的观影区!").formatted(Formatting.GREEN));
             }
             case CREATE_SCREEN -> {
                 // TODO check permission
@@ -87,17 +90,19 @@ public class ServerPacketHandler {
                     area.forEachPlayer(p -> sendTo(pm.getPlayer(p), data));
                 }
                 DataHolder.unlock();
+                player.sendMessage(Text.literal("已成功在观影区 " + area.name + " 创建名为 " + screen.name + " 的屏幕!").formatted(Formatting.GREEN));
             }
             case REMOVE_SCREEN -> {
                 // TODO check permission
                 VideoArea area = getArea(player, readName(buf));
                 if (area == null) return;
                 DataHolder.lock();
-                VideoScreen removed = area.removeScreen(readName(buf));
-                if (removed != null && area.hasPlayer()) {
-                    byte[] data = removeScreen(removed);
+                VideoScreen screen = area.removeScreen(readName(buf));
+                if (screen != null && area.hasPlayer()) {
+                    byte[] data = removeScreen(screen);
                     PlayerManager pm = Objects.requireNonNull(player.getServer()).getPlayerManager();
                     area.forEachPlayer(p -> sendTo(pm.getPlayer(p), data));
+                    player.sendMessage(Text.literal("已成功在观影区 " + area.name + " 移除名为 " + screen.name + " 的屏幕!").formatted(Formatting.GREEN));
                 }
                 DataHolder.unlock();
             }
@@ -113,6 +118,12 @@ public class ServerPacketHandler {
                     return;
                 }
                 screen.voteSkip(player.getUuid());
+                Text s = Text.literal("玩家 %s 已投票跳过 %s 上的视频 还需 %d 个玩家".formatted(
+                        player.getName(), screen.name, screen.skipped() == 0 ? 0 : (int) (area.players() * screen.skipPercent - screen.skipped() + 1)
+                ));
+                player.sendMessage(Text.literal("已投票跳过此视频").formatted(Formatting.GOLD));
+                PlayerManager pm = Objects.requireNonNull(player.getServer()).getPlayerManager();
+                area.forEachPlayer(p -> Objects.requireNonNull(pm.getPlayer(p)).sendMessage(s));
             }
             case SKIP_PERCENT -> {
                 // TODO check permission
@@ -121,6 +132,7 @@ public class ServerPacketHandler {
                 VideoScreen screen = area.getScreen(readName(buf));
                 if (screen == null) return;
                 screen.setSkipPercent(buf.readFloat());
+                player.sendMessage(Text.literal("屏幕 " + screen.name + " 的投票跳过比例已设置为 " + screen.skipPercent).formatted(Formatting.GREEN));
             }
             case IDLE_PLAY -> {
                 // TODO
@@ -188,6 +200,26 @@ public class ServerPacketHandler {
                 }
                 if (area.hasPlayer()) {
                     byte[] data = setCustomMeta(screen, key, value, remove);
+                    PlayerManager pm = Objects.requireNonNull(player.getServer()).getPlayerManager();
+                    area.forEachPlayer(p -> sendTo(pm.getPlayer(p), data));
+                }
+            }
+            case SET_SCALE -> {
+                VideoArea area = getArea(player, readName(buf));
+                if (area == null) return;
+                VideoScreen screen = area.getScreen(readName(buf));
+                if (screen == null) return;
+                boolean fill = buf.readBoolean();
+                float scaleX = buf.readFloat();
+                float scaleY = buf.readFloat();
+                if (scaleX < 0.0625f || scaleX > 16f || scaleY < 0.0625f || scaleY > 16f) {
+                    throw new IllegalArgumentException("Invalid scale value: " + scaleX + " " + scaleY);
+                }
+                screen.fill = fill;
+                screen.scaleX = scaleX;
+                screen.scaleY = scaleY;
+                if (area.hasPlayer()) {
+                    byte[] data = setScale(screen, fill, scaleX, scaleY);
                     PlayerManager pm = Objects.requireNonNull(player.getServer()).getPlayerManager();
                     area.forEachPlayer(p -> sendTo(pm.getPlayer(p), data));
                 }
@@ -402,6 +434,16 @@ public class ServerPacketHandler {
         ByteBufUtils.writeString(buf, key);
         buf.writeInt(value);
         buf.writeBoolean(remove);
+        return toByteArray(buf);
+    }
+
+    public static byte[] setScale(VideoScreen screen, boolean fill, float scaleX, float scaleY) {
+        ByteBuf buf = create(SET_SCALE);
+        writeString(buf, screen.area.name);
+        writeString(buf, screen.name);
+        buf.writeBoolean(fill);
+        buf.writeFloat(scaleX);
+        buf.writeFloat(scaleY);
         return toByteArray(buf);
     }
 }

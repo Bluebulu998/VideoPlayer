@@ -1,6 +1,7 @@
 package com.github.squi2rel.vp.video;
 
 import com.github.squi2rel.vp.DataHolder;
+import com.github.squi2rel.vp.VideoPlayerMain;
 import com.github.squi2rel.vp.network.ByteBufUtils;
 import com.github.squi2rel.vp.network.ServerPacketHandler;
 import com.github.squi2rel.vp.provider.NamedProviderSource;
@@ -12,6 +13,7 @@ import org.joml.Vector3f;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static com.github.squi2rel.vp.DataHolder.server;
@@ -24,6 +26,8 @@ public class VideoScreen {
     public String name;
     public Vector3f p1, p2, p3, p4;
     public float u1 = 0, v1 = 0, u2 = 1, v2 = 1;
+    public boolean fill;
+    public float scaleX = 1, scaleY = 1;
     public String source;
     public float skipPercent = 0.5f;
     public Map<String, Integer> meta = new HashMap<>();
@@ -73,6 +77,10 @@ public class VideoScreen {
         infos = new ArrayDeque<>();
         lock = new ReentrantLock();
         playNext();
+    }
+
+    public int skipped() {
+        return skipped.size();
     }
 
     public synchronized void addInfo(VideoInfo info) {
@@ -194,20 +202,12 @@ public class VideoScreen {
             if (s == null) return;
             synchronized (this) {
                 nextTask = null;
-                s.stopped(() -> {
-                    // 延迟两秒后再执行skip逻辑
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(2000);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                        lock();
-                        infos.poll();
-                        unlock();
-                        playNext();
-                    }).start();
-                });
+                s.stopped(() -> VideoPlayerMain.scheduler.schedule(() -> {
+                    lock();
+                    infos.poll();
+                    unlock();
+                    playNext();
+                }, 2, TimeUnit.SECONDS));
                 s.listen();
             }
         });
