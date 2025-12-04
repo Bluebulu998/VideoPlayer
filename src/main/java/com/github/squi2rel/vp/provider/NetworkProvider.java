@@ -48,6 +48,8 @@ public class NetworkProvider implements IVideoProvider {
             name = "HLS Stream";
         } else if (path.startsWith("rtsp://") || path.startsWith("rtspt://")) {
             name = "RTSP Stream";
+        } else if (path.startsWith("rtmp://")) {
+            name = "RTMP Stream";
         } else if (path.startsWith("http")) {
             name = "HTTP Stream";
         } else if (path.startsWith("rtp://")) {
